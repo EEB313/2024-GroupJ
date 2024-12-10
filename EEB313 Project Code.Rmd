@@ -1,0 +1,264 @@
+---
+title: "EEB313 project code"
+author: "Jessica Bullock"
+date: "2024-11-18"
+output: pdf_document
+---
+This project aims to determine the importance of lineage and ecology in grouping Apistogramma dwarf cichlids by phenotype. 
+This code was written to analyse the combined data from 'Apisto_ecological_data.csv', 'Apisto_character_data.csv', and 'Apisto_lineage_data.csv'.
+
+#Load required packages
+```{r, message=F, warning=F}
+require(tidyverse)
+library(FactoMineR) # to perform MCA
+library(factoextra) # to plot MCA stuff
+library(qgraph) # to create the qgraph, showing correlation between nodes in a matrix
+library(ape) # to make NJ tree (was not successful, made.. a stick)
+library(phangorn) # to make UPGMA tree
+```
+
+Load individual data files, merge by species.
+Change '?' to 'NA' as no explanation was given by the author.
+Change 'occaisional' to 'yes', as data is based on presence/absence. (and I can't spell).
+
+```{r}
+eco_data<- read.csv("Apisto_ecological_data.csv")
+character_data<- read.csv("Apisto_character_data.csv")
+lineage_data<- read.csv("Apisto_lineage_data.csv")
+
+book_data <- merge(eco_data, character_data, by="species")
+total_data<- merge(book_data, lineage_data, by="species")
+
+
+total_data[total_data == '?']<-'NA'
+total_data[total_data == 'occaisional']<-'yes'
+```
+
+Need to filter out species with missing data, then rename rows as species names, and remove species column.
+Remove columns with only one level remaining; they will not help inform analysis.
+Confirm structure of data before analysis.
+
+```{r}
+total_data %>% 
+  filter(if_all(everything(), ~!str_detect(., "NA")))%>%
+  mutate_if(is.numeric,as.character)->data
+
+rownames(data) <- data$species
+data$species <- NULL
+
+
+final_data <- data[, sapply(data, function(x) length(unique(x)) > 1)]
+
+
+final_data<-as.data.frame(final_data)
+str(final_data)
+```
+
+Run Multiple Correspondence analysis, save biplot of individuals as jpg.
+'repel = TRUE' helps prevent overlapping labels
+
+```{r}
+results_mca<-MCA(final_data)
+
+summary(results_mca)
+
+factor_map_plot <- fviz_mca_ind(results_mca, repel = TRUE, 
+            ggtheme = theme_minimal())
+
+jpeg("mca_factor_map.jpg", width = 800, height = 600)  
+print(factor_map_plot) 
+dev.off()
+```
+
+Visualize the percentages of inertia explained by each MCA dimension in a scree plot, reduce y axis, save as jpg
+
+```{r}
+scree_plot <-fviz_screeplot(results_mca, addlabels = TRUE, ylim = c(0, 25))
+
+jpeg("scree_plot.jpg", width = 800, height = 600)  
+print(scree_plot) 
+dev.off()
+```
+Contribution of each variable category (in %) to each dimension
+
+```{r}
+var <- get_mca_var(results_mca)
+
+var$contrib
+```
+
+#Create plot of variable corelation to dimensions 1 and 2, save jpg
+
+```{r}
+var_plot<- fviz_mca_var(results_mca, choice = "mca.cor", 
+            repel = TRUE, labels= TRUE, labelsize = 6,
+            ggtheme = theme_minimal())
+
+jpeg("var_plot.jpg", width = 1200, height = 900)  
+print(var_plot) 
+dev.off()
+```
+
+Dimension description - identify the most correlated variables with each dimension, along with their r^2.
+
+```{r}
+res_desc <- dimdesc(results_mca, axes = c(1,2))
+
+res_desc[[1]]
+
+res_desc[[2]]
+```
+
+#Create Bi-Plots of species, group and colour by water types and then by lineage. Save as jpgs.
+Ellipses denote 95% confidence around the means of both dimensions 1 and 2 for the selected category.
+Colours chosen from accessible pallettes at http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette.
+
+By Blackwater
+```{r}
+blackwater_plot <- fviz_mca_ind(results_mca, 
+             label = "none", 
+             habillage = "blackwater", 
+             palette = c("#888888","#D55E00"),
+             addEllipses = TRUE, ellipse.type = "confidence", 
+             ggtheme = theme_minimal()) +
+  ggtitle("Species grouped by variable: Blackwater")
+
+jpeg("blackwater_plot.jpg", width = 1200, height = 900)  
+print(blackwater_plot) 
+dev.off()
+```
+
+By Whitewater
+```{r}
+whitewater_plot <- fviz_mca_ind(results_mca, 
+             label = "none", 
+             habillage = "whitewater", 
+             palette = c("#888888", "#D55E00"),
+             addEllipses = TRUE, ellipse.type = "confidence",
+             ggtheme = theme_minimal()) +
+   ggtitle("Species grouped by variable: Whitewater")
+
+jpeg("whitewater_plot.jpg", width = 1200, height = 900)  
+print(whitewater_plot) 
+dev.off()
+```
+
+By Clearwater
+```{r}
+clearwater_plot <- fviz_mca_ind(results_mca, 
+             label = "none", # hide individual labels
+             habillage = "clearwater", # DO BY WATER TYPE color by level
+             palette = c("#888888", "#D55E00"),
+             addEllipses = TRUE, ellipse.type = "confidence",
+             ggtheme = theme_minimal()) +
+   ggtitle("Species grouped by variable: Clearwater")
+
+jpeg("clearwater_plot.jpg", width = 1200, height = 900)  
+print(clearwater_plot) 
+dev.off()
+```
+
+By Lineage
+```{r}
+lineage_plot <- fviz_mca_ind(results_mca, 
+             label = "none", # hide individual labels
+             habillage = "lineage", # DO BY WATER TYPE color by level
+             palette = c("#009E73","#56B4E9","#F0E442", "#D55E00"),
+             addEllipses = TRUE, ellipse.type = "confidence",
+             ggtheme = theme_minimal()) +
+   ggtitle("Species grouped by variable: Lineage")
+
+jpeg("lineage_plot.jpg", width = 1200, height = 900)  
+print(lineage_plot) 
+dev.off()
+```
+
+
+#Extract Coordinates/Loadings for Apisto species ('individuals') with get_mca_ind()
+
+```{r}
+ind <- get_mca_ind(results_mca)
+ind
+
+head(ind$coord)
+```
+
+#Create a new dataframe of Apisto species and their coordinates/loadings from Dimensions 1 and 2 of the MCA, to provide continuous data for analysis.
+```{r}
+ind_loadings <- ind$coord[, 1:2]
+loadings <- data.frame(species = rownames(final_data), Dimension_1 = ind_loadings[, 1], Dimension_2 = ind_loadings[, 2])
+head(loadings)
+```
+
+# Create standard distance matrix (Euclidean) from Dimension 1 loadings
+```{r}
+dm <- dist(loadings[,2])
+```
+
+#Create QGraph to show strength of relationships between species based on the distance matrix from the dimension 1 loadings. 
+Thicker lines denote stronger correlation.
+Create list of species names to label nodes.
+Create list of lineage values, convert to numeric format, assign list of colours to lineages.Colour species by Lineage.
+Plot qgraph and save as jpeg, add legend and title.
+```{r}
+species_names <- rownames(final_data)
+
+lineage_values <- final_data$lineage
+lineage_values<-as.numeric(lineage_values)
+lineage_colors <-  c("#009E73","#56B4E9","#F0E442", "#D55E00")
+label_colors <- lineage_colors[lineage_values]
+
+
+jpeg("qgraph_mca.jpg", width = 1400, height = 900)
+qgraph(dist(loadings[,2]), layout='spring', vsize=5, 
+       labels = species_names, color = label_colors, label.cex = 1.5)
+par(mar = c(1, 1, 1, 1))
+
+legend("topright",                       # Position of the legend
+       legend = c("Lineage 1", "Lineage 2", "Lineage 3", "Lineage 4"), 
+       fill = lineage_colors,             # Color corresponding to each lineage
+       title = "Lineage",                 # Title for the legend
+       bty = "n",                         #
+       cex = 0.8)     
+title( main = "Strength of correlation between Apistogramma species")
+dev.off()
+```
+
+#MARCH OF THE ENTS
+Try making a tree from the distance matrix using the neighbour-joining method.
+Create and plot UPGMA tree using the distance matrix from the loadings, save as jpg.
+Add title, tip labels of the species names, colour names by lineage, and legend
+```{r}
+eco_NJ<- NJ(dm)
+plot(eco_NJ)
+#YIKES, lets try something else
+
+eco_UPGMA <- upgma(dm)
+
+jpeg("eco_tree_lineages.jpg", width = 1600, height = 900)
+par(mar = c(4, 4, 4, 14))
+plot(eco_UPGMA, main="Combined data tree with Tougard et al lineages, UPGMA method")
+tiplabels(text=rownames(final_data), frame = "n", cex=0.8, col= label_colors, offset = 0.025)
+unique_lineages <- unique(lineage_values)
+unique_colors <- lineage_colors[unique_lineages]
+legend("topleft", 
+       legend = unique_lineages,               
+       fill = unique_colors,                   
+       cex = 0.8,                              
+       title = "Lineage",                     
+       bty = "n",                              
+       inset = c(0.02, 0.02))
+dev.off()
+```
+
+Citations
+```{r}
+citation()
+citation("tidyverse")
+citation("FactoMineR")
+citation("factoextra")
+citation("qgraph")
+citation("ape")
+citation("phangorn")
+```
+Thanks for reading, best fishes on your next analysis.
